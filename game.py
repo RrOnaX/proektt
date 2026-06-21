@@ -1,433 +1,684 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import font, messagebox
 import random
 import time
-import os
+import math
+import threading
 
-# ========== ВСТРОЕННЫЕ ЗВУКИ ==========
+# ========== ЗВУКИ (ВСТРОЕННЫЕ) ==========
 try:
     import winsound
-    SOUNDS = True
+    SOUND = True
 except:
-    SOUNDS = False
-    print("⚠️ Звуки не доступны (только для Windows)")
+    SOUND = False
 
-def play_sound(sound_type):
-    """Воспроизводит звук"""
-    if not SOUNDS:
-        return
-    
-    try:
-        if sound_type == "click":
-            winsound.Beep(800, 50)
-        elif sound_type == "success":
-            winsound.Beep(523, 150)
-            time.sleep(0.05)
-            winsound.Beep(659, 150)
-        elif sound_type == "fail":
-            winsound.Beep(300, 300)
-        elif sound_type == "win":
-            for note in [523, 659, 784, 1047]:
-                winsound.Beep(note, 100)
-                time.sleep(0.05)
-    except:
-        pass
+def sound_effect(freq, duration):
+    if SOUND:
+        try:
+            winsound.Beep(freq, duration)
+        except:
+            pass
 
-# ========== ИГРА ==========
-class LabGame:
+def play_click():
+    sound_effect(800, 30)
+
+def play_success():
+    for f in [523, 659, 784]:
+        sound_effect(f, 100)
+        time.sleep(0.05)
+
+def play_fail():
+    sound_effect(300, 400)
+
+def play_win():
+    for f in [523, 587, 659, 784, 880, 988, 1047]:
+        sound_effect(f, 80)
+        time.sleep(0.04)
+
+# ========== ОСНОВНАЯ ИГРА ==========
+class Game:
     def __init__(self, root):
         self.root = root
-        self.root.title("🧪 ПОБЕГ ИЗ ЛАБОРАТОРИИ")
-        self.root.geometry("800x650")
-        self.root.configure(bg='#0a0a1a')
+        self.root.title("🔬 ПОБЕГ ИЗ ЛАБОРАТОРИИ")
+        self.root.geometry("900x700")
+        self.root.configure(bg='#0a0e17')
+        self.root.resizable(False, False)
         
-        # Игровые переменные
-        self.card = False
-        self.power = False
-        self.step = 0
-        
-        # ===== ПЕРСОНАЖ =====
-        self.player = "👨‍🔬"
-        self.player_name = "Учёный"
+        # Игровые состояния
+        self.has_card = False
+        self.has_power = False
+        self.current_scene = 0
+        self.gold = 0
+        self.health = 100
+        self.time = 0
+        self.ending = None
         
         # ===== ВЕРХНЯЯ ПАНЕЛЬ =====
-        top_frame = tk.Frame(root, bg='#0a0a1a')
-        top_frame.pack(fill=tk.X, pady=10)
+        self.create_header()
         
-        # Имя персонажа
-        tk.Label(
-            top_frame,
-            text=f"{self.player} {self.player_name}",
-            font=("Arial", 18, "bold"),
-            fg='#ffd700',
-            bg='#0a0a1a'
-        ).pack(side=tk.LEFT, padx=20)
-        
-        # Инвентарь
-        self.inv_label = tk.Label(
-            top_frame,
-            text="🎒 Инвентарь: пусто",
-            font=("Arial", 12),
-            fg='#88ccff',
-            bg='#0a0a1a'
-        )
-        self.inv_label.pack(side=tk.LEFT, padx=20)
-        
-        # ===== ХОЛСТ =====
+        # ===== ОСНОВНОЙ ХОЛСТ =====
         self.canvas = tk.Canvas(
             root,
-            width=750,
-            height=350,
-            bg='#0a0a1a',
+            width=860,
+            height=400,
+            bg='#0a0e17',
             highlightthickness=2,
-            highlightcolor='#ffd700'
+            highlightcolor='#00d4ff',
+            relief=tk.FLAT
         )
         self.canvas.pack(pady=10)
         
-        # ===== ТЕКСТ =====
-        self.text_label = tk.Label(
-            root,
-            text="",
-            font=("Comic Sans MS", 13),
-            fg='#ffffff',
-            bg='#0a0a1a',
-            wraplength=700,
-            justify=tk.CENTER
-        )
-        self.text_label.pack(pady=10)
+        # ===== ТЕКСТОВАЯ ОБЛАСТЬ =====
+        self.text_frame = tk.Frame(root, bg='#0a0e17')
+        self.text_frame.pack(pady=8, fill=tk.X, padx=40)
         
-        # ===== СТАТУС =====
+        self.text_display = tk.Text(
+            self.text_frame,
+            height=3,
+            font=("Segoe UI", 12),
+            fg='#c8d6e5',
+            bg='#16213e',
+            wrap=tk.WORD,
+            relief=tk.FLAT,
+            bd=5,
+            highlightthickness=1,
+            highlightcolor='#00d4ff'
+        )
+        self.text_display.pack(fill=tk.X)
+        self.text_display.config(state=tk.DISABLED)
+        
+        # ===== СТАТУС БАР =====
         self.status = tk.Label(
             root,
-            text="🔍 Исследуйте лабораторию...",
-            font=("Arial", 10),
-            fg='#666677',
-            bg='#0a0a1a'
+            text="🔍 Добро пожаловать в лабораторию",
+            font=("Segoe UI", 10),
+            fg='#8395a7',
+            bg='#0a0e17'
         )
-        self.status.pack()
+        self.status.pack(pady=5)
         
         # ===== КНОПКИ =====
-        self.btn_frame = tk.Frame(root, bg='#0a0a1a')
+        self.btn_frame = tk.Frame(root, bg='#0a0e17')
         self.btn_frame.pack(pady=15)
         
-        self.btn1 = tk.Button(
-            self.btn_frame,
-            text="ВЫБОР 1",
-            font=("Arial", 12, "bold"),
-            width=20,
-            height=2,
-            bg='#00ff88',
-            fg='#000000',
-            relief=tk.RAISED,
-            bd=3,
-            cursor='hand2',
-            command=self.choice1
-        )
+        self.btn1 = self.create_button("▶ ВЫБОР 1", '#00d4ff', self.choice1)
         self.btn1.pack(side=tk.LEFT, padx=15)
         
-        self.btn2 = tk.Button(
-            self.btn_frame,
-            text="ВЫБОР 2",
-            font=("Arial", 12, "bold"),
-            width=20,
-            height=2,
-            bg='#ff6b6b',
-            fg='#000000',
-            relief=tk.RAISED,
-            bd=3,
-            cursor='hand2',
-            command=self.choice2
-        )
+        self.btn2 = self.create_button("▶ ВЫБОР 2", '#ff6b6b', self.choice2)
         self.btn2.pack(side=tk.LEFT, padx=15)
         
         # ===== КНОПКА ПЕРЕЗАПУСКА =====
-        self.restart_btn = tk.Button(
-            root,
-            text="🔄 ИГРАТЬ ЗАНОВО",
-            font=("Arial", 12, "bold"),
-            width=20,
-            height=2,
-            bg='#ffd93d',
-            fg='#000000',
-            relief=tk.RAISED,
-            bd=3,
-            cursor='hand2',
-            command=self.restart
+        self.restart_btn = self.create_button(
+            "⟳ НОВАЯ ИГРА", 
+            '#ffd93d', 
+            self.restart,
+            width=18
         )
         
-        # Запуск игры
+        # ===== НИЖНИЙ БАР С ПОДСКАЗКАМИ =====
+        self.hint = tk.Label(
+            root,
+            text="💡 Совет: Исследуйте каждую деталь",
+            font=("Segoe UI", 9, "italic"),
+            fg='#576574',
+            bg='#0a0e17'
+        )
+        self.hint.pack(pady=5)
+        
+        # Запускаем игру
         self.show_scene(0)
+        self.animate_ui()
     
-    def update_inventory(self):
-        """Обновляет инвентарь"""
+    def create_header(self):
+        """Создаёт верхнюю панель"""
+        header = tk.Frame(self.root, bg='#0a0e17')
+        header.pack(fill=tk.X, pady=8, padx=20)
+        
+        # Логотип
+        tk.Label(
+            header,
+            text="🔬 ПОБЕГ ИЗ ЛАБОРАТОРИИ",
+            font=("Segoe UI", 18, "bold"),
+            fg='#00d4ff',
+            bg='#0a0e17'
+        ).pack(side=tk.LEFT)
+        
+        # Статистика
+        stats = tk.Frame(header, bg='#0a0e17')
+        stats.pack(side=tk.RIGHT)
+        
+        self.health_display = tk.Label(
+            stats,
+            text="❤️ 100",
+            font=("Segoe UI", 11),
+            fg='#ff6b6b',
+            bg='#0a0e17'
+        )
+        self.health_display.pack(side=tk.LEFT, padx=10)
+        
+        self.inventory_display = tk.Label(
+            stats,
+            text="🎒 Пусто",
+            font=("Segoe UI", 11),
+            fg='#ffd93d',
+            bg='#0a0e17'
+        )
+        self.inventory_display.pack(side=tk.LEFT, padx=10)
+        
+        self.time_display = tk.Label(
+            stats,
+            text="⏱ 0",
+            font=("Segoe UI", 11),
+            fg='#8395a7',
+            bg='#0a0e17'
+        )
+        self.time_display.pack(side=tk.LEFT, padx=10)
+    
+    def create_button(self, text, color, command, width=20):
+        """Создаёт стильную кнопку"""
+        btn = tk.Button(
+            self.btn_frame,
+            text=text,
+            font=("Segoe UI", 11, "bold"),
+            width=width,
+            height=2,
+            bg=color,
+            fg='#0a0e17',
+            relief=tk.FLAT,
+            bd=0,
+            cursor='hand2',
+            command=command,
+            activebackground='#ffffff',
+            activeforeground='#0a0e17'
+        )
+        
+        def on_enter(e):
+            btn.config(bg='#ffffff', transform=True)
+            play_click()
+        
+        def on_leave(e):
+            btn.config(bg=color)
+        
+        btn.bind('<Enter>', on_enter)
+        btn.bind('<Leave>', on_leave)
+        return btn
+    
+    def update_stats(self):
+        """Обновляет панель статистики"""
+        # Инвентарь
         items = []
-        if self.card:
-            items.append("🗂️ Карта")
-        if self.power:
-            items.append("⚡ Питание")
+        if self.has_card:
+            items.append("Карта")
+        if self.has_power:
+            items.append("⚡")
         
         if items:
-            self.inv_label.config(text=f"🎒 Инвентарь: {', '.join(items)}", fg='#00ff88')
+            self.inventory_display.config(text=f"🎒 {', '.join(items)}", fg='#00d4ff')
         else:
-            self.inv_label.config(text="🎒 Инвентарь: пусто", fg='#88ccff')
-    
-    def draw_scene(self, scene_type):
-        """Рисует сцену"""
-        self.canvas.delete("all")
+            self.inventory_display.config(text="🎒 Пусто", fg='#8395a7')
         
-        if scene_type == "room":
-            # Стены
-            self.canvas.create_rectangle(50, 50, 700, 320, fill='#2d2d44', outline='#444466', width=3)
-            # Пол
-            self.canvas.create_rectangle(50, 260, 700, 320, fill='#3d3d55')
-            # Дверь
-            self.canvas.create_rectangle(580, 150, 650, 280, fill='#8B4513', outline='#654321', width=3)
-            self.canvas.create_oval(630, 200, 640, 220, fill='#ffd700')
-            self.canvas.create_text(615, 210, text="🚪", font=("Arial", 25))
-            # Стол
-            self.canvas.create_rectangle(100, 230, 250, 280, fill='#5d3a1a', outline='#3d2a0a')
-            # Предметы
-            self.canvas.create_oval(150, 240, 170, 260, fill='#66ccff')
-            # Персонаж
-            self.canvas.create_text(400, 290, text=self.player, font=("Arial", 35))
-            # Название
-            self.canvas.create_text(375, 75, text="🏚️ ЗАБРОШЕННАЯ ЛАБОРАТОРИЯ", 
-                                    font=("Arial", 16, "bold"), fill='#888899')
-            
-        elif scene_type == "electric":
-            # Стены
-            self.canvas.create_rectangle(50, 50, 700, 320, fill='#1a2a1a', outline='#33aa33', width=3)
-            # Щитки
-            for i in range(3):
-                x = 80 + i * 180
-                self.canvas.create_rectangle(x, 130, x+150, 270, fill='#333355', outline='#6666aa', width=2)
-                self.canvas.create_text(x+75, 200, text=f"ЩИТ {i+1}", font=("Arial", 12), fill='#88ccff')
-                # Лампочки
-                colors = ['#ff4444', '#44ff44' if self.power else '#ffaa00', '#ffaa00']
-                for j in range(3):
-                    self.canvas.create_oval(x+20+j*35, 150+j*30, x+40+j*35, 170+j*30, 
-                                           fill=colors[j] if j < len(colors) else '#ffaa00')
-            # Персонаж
-            self.canvas.create_text(400, 290, text=self.player, font=("Arial", 35))
-            # Название
-            self.canvas.create_text(375, 75, text="⚡ ЭЛЕКТРОЩИТОВАЯ", 
-                                    font=("Arial", 16, "bold"), fill='#88ff88')
-            
-        elif scene_type == "reactor":
-            # Стены
-            self.canvas.create_rectangle(50, 50, 700, 320, fill='#1a1a2a', outline='#44aaff', width=3)
-            # Реактор
-            self.canvas.create_oval(300, 130, 450, 270, fill='#3355aa', outline='#44aaff', width=3)
-            self.canvas.create_text(375, 200, text="☢️", font=("Arial", 60))
-            # Люк
-            self.canvas.create_rectangle(550, 200, 630, 280, fill='#333344', outline='#6666aa', width=2)
-            self.canvas.create_text(590, 240, text="🕳️", font=("Arial", 30))
-            # Персонаж
-            self.canvas.create_text(400, 290, text=self.player, font=("Arial", 35))
-            # Название
-            self.canvas.create_text(375, 75, text="☢️ РЕАКТОРНАЯ", 
-                                    font=("Arial", 16, "bold"), fill='#44aaff')
+        # Время
+        self.time += 1
+        self.time_display.config(text=f"⏱ {self.time}")
+        
+        # Здоровье (постепенное уменьшение в темноте)
+        if not self.has_power and self.current_scene < 6:
+            if self.time % 5 == 0 and self.health > 0:
+                self.health -= 1
+                self.health_display.config(text=f"❤️ {self.health}")
+                if self.health <= 20:
+                    self.health_display.config(fg='#ff0000')
+                elif self.health <= 50:
+                    self.health_display.config(fg='#ff6b6b')
     
-    def draw_ending(self, ending_type):
-        """Рисует финал"""
+    def set_text(self, text, color='#c8d6e5'):
+        """Устанавливает текст"""
+        self.text_display.config(state=tk.NORMAL)
+        self.text_display.delete(1.0, tk.END)
+        self.text_display.insert(1.0, text)
+        self.text_display.config(state=tk.DISABLED, fg=color)
+    
+    def set_status(self, text):
+        """Устанавливает статус"""
+        self.status.config(text=text)
+    
+    def set_hint(self, text):
+        """Устанавливает подсказку"""
+        self.hint.config(text=f"💡 {text}")
+    
+    # ===== ОТРИСОВКА СЦЕН =====
+    def draw_room(self):
+        """Рисует комнату"""
         self.canvas.delete("all")
         
         # Фон
-        self.canvas.create_rectangle(0, 0, 750, 350, fill='#0a0a1a')
+        self.canvas.create_rectangle(0, 0, 860, 400, fill='#0f1a2e')
         
-        if ending_type == "secret":
-            self.canvas.create_text(375, 120, text="🕳️", font=("Arial", 70))
-            self.canvas.create_text(375, 210, text="СЕКРЕТНАЯ КОНЦОВКА!", 
-                                    font=("Arial", 24, "bold"), fill='#ffd700')
-            self.canvas.create_text(375, 270, text="🏆 ВЫ ПОБЕДИЛИ! 🏆", 
-                                    font=("Arial", 20, "bold"), fill='#ff6b6b')
-            
-        elif ending_type == "best":
-            self.canvas.create_text(375, 130, text="🌅", font=("Arial", 70))
-            self.canvas.create_text(375, 220, text="ЛУЧШАЯ КОНЦОВКА!", 
-                                    font=("Arial", 24, "bold"), fill='#ffd700')
-            self.canvas.create_text(375, 280, text="🎉 ВЫ НА СВОБОДЕ! 🎉", 
-                                    font=("Arial", 20, "bold"), fill='#00ff88')
-            
-        elif ending_type == "bad":
-            self.canvas.create_text(375, 140, text="🌑", font=("Arial", 70))
-            self.canvas.create_text(375, 230, text="ПЛОХАЯ КОНЦОВКА", 
-                                    font=("Arial", 24, "bold"), fill='#666677')
-            self.canvas.create_text(375, 290, text="😞 Вы застряли в темноте...", 
-                                    font=("Arial", 16), fill='#444455')
-            
-        else:  # worst
-            self.canvas.create_text(375, 130, text="⛓️", font=("Arial", 70))
-            self.canvas.create_text(375, 220, text="ХУДШАЯ КОНЦОВКА", 
-                                    font=("Arial", 24, "bold"), fill='#ff3333')
-            self.canvas.create_text(375, 280, text="☠️ ВЫ ЗАПЕРТЫ НАВЕЧНО", 
-                                    font=("Arial", 18, "bold"), fill='#ff4444')
+        # Стены
+        self.canvas.create_rectangle(40, 40, 820, 350, fill='#1a2744', outline='#00d4ff33', width=2)
+        
+        # Свет (тусклый)
+        for i in range(30):
+            x = 430 + random.randint(-100, 100)
+            y = 200 + random.randint(-80, 80)
+            alpha = random.randint(10, 30)
+            self.canvas.create_oval(x, y, x+5, y+5, fill=f'#ffff44{alpha:02x}', outline='')
+        
+        # Пол
+        for i in range(30):
+            x = 40 + i * 27
+            self.canvas.create_rectangle(x, 330, x+13, 350, 
+                                         fill='#2a3a5a' if i%2==0 else '#22304a',
+                                         outline='')
+        
+        # Дверь
+        self.canvas.create_rectangle(720, 180, 800, 330, 
+                                     fill='#2a1a0a', outline='#4a3a2a', width=3)
+        self.canvas.create_oval(785, 240, 795, 260, fill='#ffd700', outline='#cc9900')
+        self.canvas.create_text(760, 255, text="🚪", font=("Segoe UI", 25))
+        
+        # Стол
+        self.canvas.create_rectangle(100, 290, 280, 330, fill='#3a2a1a', outline='#5a4a3a')
+        self.canvas.create_rectangle(110, 270, 130, 290, fill='#3a2a1a')
+        self.canvas.create_rectangle(250, 270, 270, 290, fill='#3a2a1a')
+        
+        # Предметы на столе
+        self.canvas.create_oval(160, 298, 185, 323, fill='#00d4ff44', outline='#00d4ff88', width=2)
+        self.canvas.create_text(172, 310, text="📡", font=("Segoe UI", 20))
+        
+        # Карта (если есть)
+        if self.has_card:
+            self.canvas.create_rectangle(190, 275, 240, 310, 
+                                         fill='#ffd700', outline='#cc9900', width=2)
+            self.canvas.create_text(215, 292, text="🗺️", font=("Segoe UI", 22))
+        
+        # Персонаж (стилизованный)
+        self.draw_character(450, 340)
+        
+        # Название
+        self.canvas.create_text(430, 65, text="🏚️ ЗАБРОШЕННАЯ ЛАБОРАТОРИЯ", 
+                                font=("Segoe UI", 16, "bold"), fill='#8395a7')
+        
+        # Эффект тумана
+        self.canvas.create_rectangle(0, 340, 860, 400, fill='#0f1a2e', stipple='gray25')
     
-    def show_scene(self, step):
-        self.step = step
-        self.update_inventory()
+    def draw_electric(self):
+        """Рисует электрощитовую"""
+        self.canvas.delete("all")
         
-        if step == 0:  # Старт
-            self.draw_scene("room")
-            self.text_label.config(
-                text="🏚️ Вы в заброшенной лаборатории.\n"
-                     "Нужно найти выход!",
-                fg='#ffffff'
+        self.canvas.create_rectangle(0, 0, 860, 400, fill='#0a1a0a')
+        self.canvas.create_rectangle(40, 40, 820, 350, fill='#0f2a0f', outline='#00ff8844', width=2)
+        
+        # Щитки
+        for i in range(3):
+            x = 60 + i * 250
+            # Корпус
+            self.canvas.create_rectangle(x, 100, x+220, 300, 
+                                         fill='#1a2a3a', outline='#00d4ff33', width=2)
+            # Панель
+            self.canvas.create_rectangle(x+10, 110, x+210, 290, 
+                                         fill='#0a1a2a', outline='#00d4ff22')
+            
+            # Лампочки
+            for j in range(4):
+                y = 130 + j * 40
+                status = (i == 0 and self.has_power) or (i == 1 and self.has_power)
+                color = '#00ff88' if (i == 0 and self.has_power) or (i == 1 and self.has_power) else '#ff4444'
+                if i == 2:
+                    color = '#ffaa00'
+                
+                self.canvas.create_oval(x+30+j*45, y, x+50+j*45, y+20, 
+                                       fill=color, outline='#ffffff33')
+                if color == '#00ff88':
+                    # Эффект свечения
+                    self.canvas.create_oval(x+30+j*45-10, y-10, x+50+j*45+10, y+30, 
+                                           fill=f'{color}22', outline='')
+            
+            # Надпись
+            names = ['🔋 ПИТАНИЕ', '⚡ РЕЗЕРВ', '🔌 РАСПРЕДЕЛ']
+            self.canvas.create_text(x+110, 115, text=names[i], 
+                                   font=("Segoe UI", 9, "bold"), fill='#8395a7')
+        
+        # Персонаж
+        self.draw_character(430, 340)
+        
+        # Название
+        self.canvas.create_text(430, 65, text="⚡ ЭЛЕКТРОЩИТОВАЯ", 
+                                font=("Segoe UI", 16, "bold"), fill='#00ff88')
+    
+    def draw_reactor(self):
+        """Рисует реакторную"""
+        self.canvas.delete("all")
+        
+        self.canvas.create_rectangle(0, 0, 860, 400, fill='#0a0a1a')
+        self.canvas.create_rectangle(40, 40, 820, 350, fill='#0a1a2a', outline='#00d4ff44', width=2)
+        
+        # Реактор
+        self.canvas.create_oval(320, 120, 540, 300, fill='#1a3a5a', outline='#00d4ff', width=3)
+        self.canvas.create_oval(350, 150, 510, 270, fill='#0a2a4a', outline='#00d4ff88', width=2)
+        self.canvas.create_oval(380, 180, 480, 240, fill='#0a1a3a', outline='#00d4ff44', width=1)
+        
+        # Анимация реактора
+        pulse = int(100 + 50 * math.sin(time.time() * 2))
+        self.canvas.create_oval(320, 120, 540, 300, 
+                               fill=f'#00d4ff{pulse:02x}', outline='', stipple='gray25')
+        
+        # Радиация
+        for i in range(8):
+            angle = i * 45 + int(time.time() * 20) % 360
+            x = 430 + 120 * math.cos(math.radians(angle))
+            y = 210 + 120 * math.sin(math.radians(angle))
+            self.canvas.create_line(430, 210, x, y, 
+                                   fill='#00ff8844', width=1)
+        
+        # Люк
+        self.canvas.create_rectangle(680, 230, 760, 330, 
+                                     fill='#1a1a2a', outline='#00d4ff88', width=2)
+        self.canvas.create_text(720, 280, text="🕳️", font=("Segoe UI", 35))
+        
+        # Персонаж
+        self.draw_character(430, 340)
+        
+        # Название
+        self.canvas.create_text(430, 65, text="☢️ РЕАКТОРНАЯ", 
+                                font=("Segoe UI", 16, "bold"), fill='#00d4ff')
+    
+    def draw_ending(self, ending_type):
+        """Рисует финальную сцену"""
+        self.canvas.delete("all")
+        
+        # Фон
+        colors = {
+            'secret': ('#0a0a1a', '#ffd700'),
+            'best': ('#0a2a0a', '#00ff88'),
+            'bad': ('#0a0a0a', '#666677'),
+            'worst': ('#1a0a0a', '#ff3333')
+        }
+        
+        bg, color = colors.get(ending_type, ('#0a0a1a', '#ffffff'))
+        self.canvas.create_rectangle(0, 0, 860, 400, fill=bg)
+        
+        # Иконка
+        icons = {
+            'secret': '🕳️',
+            'best': '🌅',
+            'bad': '🌑',
+            'worst': '⛓️'
+        }
+        
+        self.canvas.create_text(430, 140, text=icons.get(ending_type, '❓'), 
+                               font=("Segoe UI", 80))
+        
+        # Текст
+        titles = {
+            'secret': 'СЕКРЕТНАЯ КОНЦОВКА',
+            'best': 'ЛУЧШАЯ КОНЦОВКА',
+            'bad': 'ПЛОХАЯ КОНЦОВКА',
+            'worst': 'ХУДШАЯ КОНЦОВКА'
+        }
+        
+        self.canvas.create_text(430, 250, text=titles.get(ending_type, 'КОНЕЦ'), 
+                               font=("Segoe UI", 28, "bold"), fill=color)
+        
+        # Подзаголовок
+        subtitles = {
+            'secret': '🏆 Вы сбежали через тайный ход!',
+            'best': '🎉 ВЫ НА СВОБОДЕ!',
+            'bad': '😞 Вы застряли в темноте...',
+            'worst': '☠️ Вы заперты навечно...'
+        }
+        
+        self.canvas.create_text(430, 310, text=subtitles.get(ending_type, ''), 
+                               font=("Segoe UI", 16), fill='#8395a7')
+        
+        # Звёзды для секретной концовки
+        if ending_type == 'secret':
+            for i in range(30):
+                x = random.randint(20, 840)
+                y = random.randint(20, 380)
+                self.canvas.create_oval(x, y, x+3, y+3, fill='#ffd700')
+    
+    def draw_character(self, x, y):
+        """Рисует персонажа"""
+        # Тень
+        self.canvas.create_oval(x-25, y, x+25, y+15, fill='#00000044', outline='')
+        
+        # Тело
+        self.canvas.create_oval(x-20, y-25, x+20, y+5, fill='#00d4ff', outline='#0088aa', width=2)
+        
+        # Глаза
+        self.canvas.create_oval(x-10, y-15, x-5, y-8, fill='white', outline='#0a0e17')
+        self.canvas.create_oval(x+5, y-15, x+10, y-8, fill='white', outline='#0a0e17')
+        
+        # Зрачки
+        self.canvas.create_oval(x-8, y-13, x-6, y-10, fill='#0a0e17')
+        self.canvas.create_oval(x+6, y-13, x+8, y-10, fill='#0a0e17')
+        
+        # Улыбка
+        self.canvas.create_arc(x-8, y-5, x+8, y+5, 
+                              start=0, extent=-180, style=tk.ARC, 
+                              width=2, outline='#0a0e17')
+        
+        # Очки
+        self.canvas.create_oval(x-15, y-18, x-3, y-6, outline='#0088aa', width=1)
+        self.canvas.create_oval(x+3, y-18, x+15, y-6, outline='#0088aa', width=1)
+        self.canvas.create_line(x-3, y-12, x+3, y-12, fill='#0088aa')
+        
+        # Имя
+        self.canvas.create_text(x, y-40, text="👨‍🔬 Учёный", 
+                               font=("Segoe UI", 9, "bold"), fill='#00d4ff')
+    
+    # ===== ЛОГИКА СЦЕН =====
+    def show_scene(self, scene):
+        self.current_scene = scene
+        self.update_stats()
+        
+        if scene == 0:  # Старт
+            self.draw_room()
+            self.set_text(
+                "🏚️ Вы приходите в сознание в заброшенной лаборатории.\n"
+                "Последнее, что вы помните - взрыв. Вокруг темно и холодно.\n"
+                "Вам нужно найти выход из этого места!",
+                '#c8d6e5'
             )
-            self.btn1.config(text="🔍 ОСМОТРЕТЬ")
-            self.btn2.config(text="🚪 ОТКРЫТЬ ДВЕРЬ")
+            self.set_status("🔍 Исследуйте комнату...")
+            self.set_hint("Осмотрите комнату, возможно, найдёте что-то полезное")
+            self.btn1.config(text="🔍 ОСМОТРЕТЬСЯ")
+            self.btn2.config(text="🚪 ПОЙТИ К ДВЕРИ")
             self.btn2.pack(side=tk.LEFT, padx=15)
             self.btn1.pack(side=tk.LEFT, padx=15)
             self.restart_btn.pack_forget()
-            self.status.config(text="🔍 Исследуйте комнату...")
-            play_sound("click")
+            play_click()
             
-        elif step == 1:  # Карта найдена
-            self.draw_scene("room")
-            self.text_label.config(
-                text="✅ Вы нашли КАРТУ ДОСТУПА!\n"
-                     "Куда пойдёте?",
-                fg='#00ff88'
+        elif scene == 1:  # Карта найдена
+            self.draw_room()
+            self.set_text(
+                "✅ Отлично! Вы нашли старую КАРТУ ДОСТУПА под столом.\n"
+                "Теперь вам нужно восстановить питание, чтобы открыть главную дверь.\n\n"
+                "Куда направитесь?",
+                '#00d4ff'
             )
+            self.set_status("🗺️ Карта найдена! Выберите путь")
+            self.set_hint("Для победы нужны карта и питание")
             self.btn1.config(text="⚡ В ЩИТОВУЮ")
-            self.btn2.config(text="☢️ В ЛАБОРАТОРИЮ")
-            self.status.config(text="🗂️ Карта найдена!")
-            play_sound("success")
+            self.btn2.config(text="☢️ В РЕАКТОРНУЮ")
+            play_success()
             
-        elif step == 2:  # Дверь заперта
-            self.draw_scene("room")
-            self.text_label.config(
-                text="🔒 Дверь заперта!\n"
-                     "Нужна карта доступа!",
-                fg='#ff6b6b'
+        elif scene == 2:  # Дверь заперта
+            self.draw_room()
+            self.set_text(
+                "🔒 Дверь заперта! Требуется электронная карта доступа.\n"
+                "Похоже, вам нужно найти карту в этой комнате.",
+                '#ff6b6b'
             )
-            self.btn1.config(text="🔍 ОСМОТРЕТЬ")
+            self.set_status("🔒 Нужна карта доступа")
+            self.set_hint("Обыщите комнату внимательнее")
+            self.btn1.config(text="🔍 ОСМОТРЕТЬСЯ")
             self.btn2.pack_forget()
-            self.status.config(text="🔒 Ищите карту...")
-            play_sound("fail")
+            play_fail()
             
-        elif step == 3:  # Электрощитовая
-            self.draw_scene("electric")
-            self.text_label.config(
-                text="⚡ В электрощитовой.\n"
-                     "Что делать?",
-                fg='#88ff88'
+        elif scene == 3:  # Электрощитовая
+            self.draw_electric()
+            self.set_text(
+                "⚡ Вы в электрощитовой. Здесь пахнет озоном и старой проводкой.\n"
+                "Пульт управления выглядит рабочим, но есть риск короткого замыкания.",
+                '#00ff88'
             )
+            self.set_status("⚡ Включить питание?")
+            self.set_hint("Включение питания может открыть главную дверь")
             self.btn1.config(text="🔌 ВКЛЮЧИТЬ")
-            self.btn2.config(text="🚶 НЕ ТРОГАТЬ")
+            self.btn2.config(text="🚶 УЙТИ")
             self.btn2.pack(side=tk.LEFT, padx=15)
-            self.status.config(text="⚡ Включите питание...")
             
-        elif step == 4:  # Питание включено
-            self.draw_scene("electric")
-            self.text_label.config(
-                text="💡 Питание восстановлено!\n"
-                     "Теперь к выходу!",
-                fg='#00ff88'
+        elif scene == 4:  # Питание включено
+            self.draw_electric()
+            self.set_text(
+                "💡 По всей лаборатории зажглись огни! Питание восстановлено.\n"
+                "Главная дверь теперь должна открыться.\n"
+                "Скорее к выходу!",
+                '#00ff88'
             )
+            self.set_status("💡 Питание восстановлено!")
+            self.set_hint("Идите к главной двери, пока не поздно")
             self.btn1.config(text="🚪 К ВЫХОДУ")
             self.btn2.pack_forget()
-            self.status.config(text="💡 Питание включено!")
-            play_sound("success")
+            play_success()
             
-        elif step == 5:  # Лаборатория
-            self.draw_scene("reactor")
-            self.text_label.config(
-                text="☢️ Вы в реакторной.\n"
-                     "Заметили ЛЮК в полу!",
-                fg='#44aaff'
+        elif scene == 5:  # Реакторная
+            self.draw_reactor()
+            self.set_text(
+                "☢️ Вы в реакторной. Гудит оборудование.\n"
+                "В углу вы замечаете странный ЛЮК в полу!\n"
+                "Похоже, это секретный путь...",
+                '#00d4ff'
             )
+            self.set_status("☢️ Что делать?")
+            self.set_hint("Люк может вести наружу или в ловушку")
             self.btn1.config(text="🕳️ В ЛЮК")
-            self.btn2.config(text="🔙 НАЗАД")
+            self.btn2.config(text="🔙 ВЕРНУТЬСЯ")
             self.btn2.pack(side=tk.LEFT, padx=15)
-            self.status.config(text="☢️ Реакторная...")
             
-        elif step == 6:  # Секретная концовка
-            self.draw_ending("secret")
-            self.text_label.config(
-                text="🏆 СЕКРЕТНАЯ КОНЦОВКА!\n"
-                     "Вы сбежали через тайный проход!",
-                fg='#ffd700'
+        elif scene == 6:  # Секретная концовка
+            self.draw_ending('secret')
+            self.set_text(
+                "🏆🏆🏆 СЕКРЕТНАЯ КОНЦОВКА! 🏆🏆🏆\n\n"
+                "Вы нырнули в люк и оказались в секретном тоннеле!\n"
+                "Через 15 минут вы вышли к старой дороге.\n"
+                "Вас подобрала проезжающая машина.\n\n"
+                "🎉 ИДЕАЛЬНЫЙ ПОБЕГ!",
+                '#ffd700'
             )
+            self.set_status("🏆 ПОБЕДА!")
+            self.set_hint("Вы нашли лучший путь!")
             self.btn1.pack_forget()
             self.btn2.pack_forget()
             self.restart_btn.pack(pady=10)
-            self.status.config(text="🏆 ПОБЕДА!")
-            play_sound("win")
+            play_win()
             
-        elif step == 7:  # Финал
-            if self.card and self.power:
-                self.draw_ending("best")
-                self.text_label.config(
-                    text="🏆 ЛУЧШАЯ КОНЦОВКА!\n"
-                         "Карта + питание = СВОБОДА!",
-                    fg='#00ff88'
+        elif scene == 7:  # Финал
+            if self.has_card and self.has_power:
+                self.draw_ending('best')
+                self.set_text(
+                    "🏆🏆🏆 ЛУЧШАЯ КОНЦОВКА! 🏆🏆🏆\n\n"
+                    "✅ Карта доступа принята!\n"
+                    "✅ Питание работает!\n"
+                    "🔓 Дверь открылась...\n\n"
+                    "🎉 ВЫ СВОБОДНЫ! Поздравляем с побегом!",
+                    '#00ff88'
                 )
-                play_sound("win")
+                self.set_status("🏆 ПОБЕДА!")
+                self.set_hint("Идеальное прохождение!")
+                play_win()
                 
-            elif self.card and not self.power:
-                self.draw_ending("bad")
-                self.text_label.config(
-                    text="😞 ПЛОХАЯ КОНЦОВКА\n"
-                         "Карта есть, но нет питания.",
-                    fg='#ff6b6b'
+            elif self.has_card and not self.has_power:
+                self.draw_ending('bad')
+                self.set_text(
+                    "😞 ПЛОХАЯ КОНЦОВКА\n\n"
+                    "✅ Карта есть, но питания нет!\n"
+                    "🚫 Дверь не открывается.\n"
+                    "💀 Вы застряли в темноте...",
+                    '#ff6b6b'
                 )
-                play_sound("fail")
+                self.set_status("😞 Поражение")
+                self.set_hint("В следующий раз включите питание!")
+                play_fail()
                 
             else:
-                self.draw_ending("worst")
-                self.text_label.config(
-                    text="☠️ ХУДШАЯ КОНЦОВКА\n"
-                         "Нет карты, нет питания!",
-                    fg='#ff3333'
+                self.draw_ending('worst')
+                self.set_text(
+                    "☠️☠️☠️ ХУДШАЯ КОНЦОВКА ☠️☠️☠️\n\n"
+                    "❌ Нет карты доступа!\n"
+                    "❌ Нет питания!\n"
+                    "🚫 Дверь заперта навсегда...\n"
+                    "💀 Лаборатория стала вашей могилой.",
+                    '#ff3333'
                 )
-                play_sound("fail")
+                self.set_status("☠️ ПОРАЖЕНИЕ")
+                self.set_hint("Нужно было искать карту и питание!")
+                play_fail()
             
             self.btn1.pack_forget()
             self.btn2.pack_forget()
             self.restart_btn.pack(pady=10)
-            self.status.config(text="Игра окончена")
     
+    # ===== ДЕЙСТВИЯ КНОПОК =====
     def choice1(self):
-        play_sound("click")
+        play_click()
         
-        if self.step == 0 or self.step == 2:
-            self.card = True
+        if self.current_scene == 0 or self.current_scene == 2:
+            self.has_card = True
             self.show_scene(1)
-        elif self.step == 1:
+        elif self.current_scene == 1:
             self.show_scene(3)
-        elif self.step == 3:
-            self.power = True
+        elif self.current_scene == 3:
+            self.has_power = True
             self.show_scene(4)
-        elif self.step == 4:
+        elif self.current_scene == 4:
             self.show_scene(7)
-        elif self.step == 5:
+        elif self.current_scene == 5:
             self.show_scene(6)
     
     def choice2(self):
-        play_sound("click")
+        play_click()
         
-        if self.step == 0:
+        if self.current_scene == 0:
             self.show_scene(2)
-        elif self.step == 1:
+        elif self.current_scene == 1:
             self.show_scene(5)
-        elif self.step == 3:
+        elif self.current_scene == 3:
             self.show_scene(7)
-        elif self.step == 5:
+        elif self.current_scene == 5:
             self.show_scene(7)
     
     def restart(self):
-        play_sound("click")
-        self.card = False
-        self.power = False
+        play_click()
+        self.has_card = False
+        self.has_power = False
+        self.health = 100
+        self.time = 0
         self.restart_btn.pack_forget()
         self.btn1.pack(side=tk.LEFT, padx=15)
         self.btn2.pack(side=tk.LEFT, padx=15)
         self.show_scene(0)
-        self.status.config(text="🔄 Игра перезапущена!")
+        self.set_status("🔄 Новая игра начата!")
+        self.set_hint("Исследуйте лабораторию и найдите выход")
+        self.health_display.config(text="❤️ 100", fg='#ff6b6b')
+    
+    def animate_ui(self):
+        """Анимация интерфейса"""
+        # Обновление времени
+        if self.current_scene < 6:
+            self.update_stats()
+        
+        # Перерисовка сцены с анимацией
+        if self.current_scene == 5:  # Реактор с анимацией
+            self.draw_reactor()
+        
+        # Запуск следующего кадра
+        self.root.after(200, self.animate_ui)
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
     root = tk.Tk()
-    game = LabGame(root)
+    game = Game(root)
     root.mainloop()
